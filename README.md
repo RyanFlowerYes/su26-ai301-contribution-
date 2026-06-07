@@ -1,15 +1,17 @@
-# Contribution [#]: [Issue Title]
+# Contribution [1]: [Integration Test for Score Parsing Pipeline]
 
-**Contribution Number:** [1 / 2 / 3]  
-**Student:** [Your Name]  
-**Issue:** [GitHub issue link]  
-**Status:** [Phase I / Phase II / Phase III / Phase IV] [In Progress / Complete]
+**Contribution Number:** [1]  
+**Student:** [Ryan Ouardaoui]  
+**Issue:** [https://github.com/truera/trulens/issues/2496]  
+**Status:** [Phase I] [In Progress]
 
 ---
 
 ## Why I Chose This Issue
 
-[1-2 paragraphs explaining why this issue interests you, how it matches your skills/learning goals, what you hope to learn]
+The existing tests only check the regex parser by feeding it strings directly. They never run a score through the actual feedback pipeline. That's a real gap, because LLMs don't return clean numbers : they return JSON, markdown code fences, numbers buried in sentences, extra whitespace. The parser might handle a string fine in isolation and still break when the same string comes through generate_score. I wanted to close that gap.
+It also fits what I can actually do right now. I don't need to understand all of TruLens, just the feedback pipeline and what the parser should output. The scope is fixed: six input formats, three assertions each. I know what "done" looks like, which is why I picked it over issues where the goal was vague.
+
 
 ---
 
