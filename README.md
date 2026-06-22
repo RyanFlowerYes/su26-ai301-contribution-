@@ -3,7 +3,7 @@
 **Contribution Number:** [2]  
 **Student:** [Ryan Ouardaoui]  
 **Issue:** [https://github.com/truera/trulens/issues/2496]  
-**Status:** [Phase II] [Complete]
+**Status:** [Phase IV] [Complete]
 
 ---
 
@@ -79,11 +79,13 @@ Observe that most cases pass, but the structured JSON return shape in generate_s
 
 ### Analysis
 
-[Your analysis of the root cause - what's causing the issue?]
+The root cause has two layers. First, the "issue" itself is a coverage gap, not a code defect , the parser is tested only with hardcoded strings, so nothing proves the end-to-end path survives realistic LLM output. Second, once I built the integration tests, they surfaced an actual defect: generate_score's structured-JSON branch returns the same (score, reason) tuple that generate_score_and_reasons builds, rather than extracting just the normalized float. The math is fine; the return shape is wrong, and it silently violates the -> float contract.
 
 ### Proposed Solution
 
-[High-level description of your fix approach]
+Add a new integration test file that drives realistic LLM-style outputs through the real provider parsing and feedback execution path, asserting normalization to a float in [0.0, 1.0] at each entry point. Capture the structured-JSON return-shape inconsistency as a strict xfail, paired with a companion test that proves generate_score_and_reasons normalizes the identical payload correctly — so the failing test isolates the bug to generate_score's return shape and auto-flips to green the moment the JSON branch is fixed.
+
+
 
 ### Implementation Plan
 
@@ -139,50 +141,56 @@ the structured JSON inconsistency is captured with strict xfail
 
 ### Unit Tests
 
-- [ ] Test case 1: [Description]
-- [ ] Test case 2: [Description]
-- [ ] Test case 3: [Description]
+-  [ x] Test case 1: generate_score normalizes every text shape (plain number, number-in-sentence, markdown-fenced JSON, whitespace-padded, prose-only) to the expected 0.2.
+-  [x ]  Test case 2: generate_score accepts a float-format response ("2.5") and a custom min/max range, returning a float in [0.0, 1.0].
+-  [ x] Test case 3: generate_score parses a structured BaseFeedbackResponse object correctly (a branch the text cases never exercise).
+
+
 
 ### Integration Tests
 
-- [ ] Integration scenario 1
-- [ ] Integration scenario 2
+- [ ] Integration scenario 1: generate_score_and_reasons returns a (float, dict) tuple for every text shape and parses the structured ChainOfThoughtResponse object, keeping the reason text.
+- [ ] Integration scenario 2: Integration scenario 2: context_relevance runs end to end across all response shapes — building the real system prompt from templates internally — and returns a normalized float. A strict xfail documents the generate_score structured-JSON tuple bug, with a companion test proving generate_score_and_reasons normalizes the same JSON to 0.2.
+
+
+
 
 ### Manual Testing
 
-[What you tested manually and results]
+Ran python -m pytest test_score_parsing_pipeline.py -v against the real installed trulens-feedback package (not a stub). Result: 30 passed, 1 xfailed. The strict xfail behaved exactly as designed — it fails today because of the tuple return and would flip to passing the instant the JSON branch is fixed, so it can't silently rot.
 
 ---
 
 ## Implementation Notes
 
-### Week [X] Progress
+### Week [1] Progress
 
-[What you built this week, challenges faced, decisions made]
+Pulled the actual TruLens source (generated.py, llm_provider.py, output_schemas.py) and traced the score flow from provider output into generate_score. Worked out the two interception points needed for a clean mock: _create_chat_completion for the canned response, and a pass-through endpoint.run_in_pace. Confirmed the existing tests only cover hardcoded strings, which validated the gap the issue describes.
 
-### Week [Y] Progress
+### Week [2] Progress
 
-[Continue documenting as you work]
+Built MockLLMProvider, parametrized the six response shapes, and wired them through generate_score, generate_score_and_reasons, and context_relevance. Hit the structured-JSON return-shape inconsistency, then added the companion test to prove it was a return-shape bug rather than a parsing bug, and pinned it with a strict xfail. Tightened the file (removed dead helpers, fixed import sorting for ruff/isort), reran the full suite, and opened the PR with a bug-first description.
 
 ### Code Changes
 
-- **Files modified:** [List]
-- **Key commits:** [Links to important commits]
-- **Approach decisions:** [Why you chose certain approaches]
+- **Files modified:** Files modified: Added one new file, tests/integration/test_score_parsing_pipeline.py. No production code changed — this is test-only coverage plus a documented xfail.
+- **Key commits:** [[Links to important commits]](https://github.com/truera/trulens/pull/2554)
+- **Approach decisions:** Mock at the two narrowest seams (_create_chat_completion and run_in_pace) so the real parsing/normalization code runs unmocked. Isolate the JSON bug with a paired passing/xfailing test instead of hiding it or loosening an assertion. Route shapes through context_relevance rather than only generate_score, since that exercises more of the real production path.
 
 ---
 
 ## Pull Request
 
-**PR Link:** [GitHub PR URL when submitted]
+**PR Link:** [[GitHub PR URL when submitted]](https://github.com/truera/trulens/pull/2554)
 
-**PR Description:** [Draft or final PR description - much of the content above can be adapted]
+**PR Description:** Added integration coverage for the score-parsing pipeline and, in doing so, surfaced an inconsistency: generate_score returns a tuple for structured-JSON responses while generate_score_and_reasons normalizes the same payload correctly (#2496); captured as a strict xfail. The PR adds a MockLLMProvider driving six realistic LLM response shapes through generate_score, generate_score_and_reasons, and context_relevance, asserting normalization to a float in [0.0, 1.0] at each entry point.
 
 **Maintainer Feedback:**
-- [Date]: [Summary of feedback received]
-- [Date]: [How you addressed it]
+- [06/22/26]: The PR was not merged. The issue drew several competing contributions (around five in total), and the last one submitted was the one the maintainers accepted.
+I received a thanks-for-the-contribution acknowledgment from the maintainers.
 
-**Status:** [Awaiting review / Iterating / Approved / Merged]
+
+**Status:** Closed - not merged
 
 ---
 
@@ -190,20 +198,27 @@ the structured JSON inconsistency is captured with strict xfail
 
 ### Technical Skills Gained
 
-[What you learned technically]
+I learned how to mock an LLM provider at the right level, intercepting only _create_chat_completion and the endpoint's run_in_pace so the actual parsing and normalization code still runs, rather than mocking so much that the test no longer proves anything. I also got comfortable with pytest.mark.parametrize for response-shape matrices and with strict=True xfail as a way to record a known bug as an executable, self-resetting assertion instead of a comment.
+
+
 
 ### Challenges Overcome
 
-[What was hard and how you solved it]
+The hardest part was scoping a large codebase down to just the feedback-parsing path, and then correctly diagnosing the structured-JSON failure. My first instinct was "the parser is broken," but the companion test through generate_score_and_reasons showed the same payload normalizing fine, which meant the bug was the return shape of generate_score, not the parsing math. Getting that distinction right changed the test from a vague "this fails" into a precise bug report.
+
+
 
 ### What I'd Do Differently Next Time
 
-[Reflection on your process]
+The issue was completely unclaimed when I picked it up, no assignee, no open PRs. The competition showed up afterward, simply because TruLens is a popular, high-visibility library and a well-scoped issue like this one draws a crowd fast. In hindsight I'd move faster once I commit to an issue like that, since being early doesn't guarantee staying ahead on a repo this active. I'd also engage the maintainer earlier in a comment to confirm the approach (test-only + documented xfail) was what they wanted, rather than presenting it all at once at PR time.
+
 
 ---
 
 ## Resources Used
 
-- [Link to helpful documentation]
-- [Tutorial or Stack Overflow post that helped]
-- [GitHub issues or discussions that helped]
+TruLens repository source: src/feedback/trulens/feedback/generated.py, llm_provider.py, output_schemas.py
+Existing tests as patterns: tests/unit/test_feedback_score_generation.py
+TruLens CONTRIBUTING.md (style, pre-commit, PR conventions)
+pytest docs on parametrize and xfail(strict=True)
+Issue #2496 discussion thread: https://github.com/truera/trulens/issues/2496
